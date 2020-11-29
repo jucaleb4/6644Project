@@ -5,6 +5,18 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
 
+class ConvergenceTracker():
+    """ Stores information such as iteration counts and solutions/residuals for
+    analyzing convergence of iterative method."""
+    def __init__(self):
+        self._iter_count = 0
+        self._residuals = []
+
+    def __call__(self, residual=None):
+        self._iter_count += 1
+        self._residuals.append(residual)
+
+
 def nonlinear_PDE(u):
     """ Centered finite difference of nonlinear PDE
             -u_xx + 2b(e^u)_x + ce^u = R(x) for x \in [0,1]
@@ -68,6 +80,7 @@ def newtons_derfree(F, x0, tol=1e-6):
     n = len(x)
     slen = 1e-4
     omega = 1.
+    gmres_counter = ConvergenceTracker()
 
     while (la.norm(F(x)) > tol):
         # use solver with/without preconditioner
@@ -77,11 +90,10 @@ def newtons_derfree(F, x0, tol=1e-6):
         J = spla.LinearOperator((n, n), matvec=mv)
         # TODO: Use Krylov method here
         M = ssor_precon(F, omega, n, x)
-        #M = None
-        s, _ = spla.gmres(J, -F(x), M=M)
+        s, _ = spla.gmres(J, -F(x), M=M, callback=gmres_counter)
         x = x + s
 
-    return x
+    return x, gmres_counter
 
 
 def fd_jacobian(F, x):
@@ -185,7 +197,7 @@ def main():
         return nonlinear_PDE(v) - R
 
     # Starting guess
-    u0 = 5 * np.random.normal(size=n)
+    u0 = np.random.normal(size=n)
 
     # Exact Jacobian
     u, niters, scores = newtons(F, exact_jacobian, u0, tol=1e-6)
@@ -201,8 +213,9 @@ def main():
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
     # Finite difference Jacobian
-    u = newtons_derfree(F, u0, tol=1e-6)
+    u, gmres_counter = newtons_derfree(F, u0, tol=1e-6)
     print("\n>> Derfree Jacobian")
+    print("Converged in {} iterations".format(gmres_counter._iter_count))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
 
