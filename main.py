@@ -58,14 +58,15 @@ def newtons_derfree(F,x0,tol=1e-6):
     - @x solution so that F(x)=0
     """
     x = x0
+    n = len(x)
     slen = 1e-4
     while(la.norm(F(x)) > tol):
         # use solver with/without preconditioner
         def mv(v):
             return (F(x+slen*v)-F(x))/slen
-        J = LinearOperator((n,n), matvec=mv)
+        J = spla.LinearOperator((n,n), matvec=mv)
         # TODO: Use Krylov method here
-        s = ...
+        s,_ = spla.gmres( J,-F(x) )
         x = x+s
     return x
 
@@ -128,6 +129,11 @@ def main():
     u,niters,scores = newtons(F,fd_jacobian,u0,tol=1e-6)
     print("\n>> FD Jacobian")
     print("Converged in {} iterations".format(niters))
+    print("Error residual={:.2e}".format(la.norm(u-utrue)/la.norm(utrue)))
+
+    # Finite difference Jacobian
+    u = newtons_derfree(F,u0,tol=1e-6)
+    print("\n>> Derfree Jacobian")
     print("Error residual={:.2e}".format(la.norm(u-utrue)/la.norm(utrue)))
 
 if __name__=='__main__':
