@@ -8,13 +8,16 @@ import scipy.sparse.linalg as spla
 class ConvergenceTracker():
     """ Stores information such as iteration counts and solutions/residuals for
     analyzing convergence of iterative method."""
-    def __init__(self):
+    def __init__(self, initial_res=None):
         self._iter_count = 0
-        self._residuals = []
+        self._residuals = [initial_res]
 
     def __call__(self, residual=None):
         self._iter_count += 1
         self._residuals.append(residual)
+
+    def niters(self):
+        return self._iter_count
 
 
 def nonlinear_PDE(u):
@@ -39,32 +42,36 @@ def nonlinear_PDE(u):
     return r
 
 
-def newtons(F, J, x0, tol=1e-6):
+def newtons(F, J, x0, tol=1e-6, solver="Direct"):
     """ Newton's Method with exact or FD Jacobian
 
     - F : Function eval. Returns 1d np.ndarray
     - J : Jacobian eval. Returns 2d np.ndarray
     - x0 : Initial guess. 1D np.ndarray
+    - solver : Choose between solver types. Defaults to "Direct"
 
     Returns:
     - @x solution so that F(x)=0
-    - @numiters, int
-    - @score_hist, history of "F(x)". 1d np.ndarray
+    - @con_tracker ConvergencTracker object
     """
     x = x0
-    niters = 0
-    score_hist = np.array([la.norm(F(x))])
+    con_tracker = ConvergenceTracker(la.norm(F(x)))
 
-    while (la.norm(F(x)) > tol):
-        A = J(F, x)
-        # use solver with/without preconditioner
-        # TODO: When will this be singular?
-        s = spla.spsolve(A, -F(x))
-        x = x + s
-        niters += 1
-        score_hist = np.append(score_hist, la.norm(F(x)))
+    if solver == 'GMRES':
+        while (la.norm(F(x)) > tol):
+            M = None
+            s, _ = spla.gmres(J(F, x), -F(x), M=M, callback=con_tracker)
+            x = x + s
+    else:
+        while (la.norm(F(x)) > tol):
+            A = J(F, x)
+            # use solver with/without preconditioner
+            # TODO: When will this be singular?
+            s = spla.spsolve(A, -F(x))
+            x = x + s
+            con_tracker(la.norm(F(x)))
 
-    return x, niters, score_hist
+    return x, con_tracker
 
 
 def newtons_derfree(F, x0, tol=1e-6):
@@ -80,7 +87,7 @@ def newtons_derfree(F, x0, tol=1e-6):
     n = len(x)
     slen = 1e-4
     omega = 1.
-    gmres_counter = ConvergenceTracker()
+    gmres_counter = ConvergenceTracker(la.norm(F(x)))
 
     while (la.norm(F(x)) > tol):
         # use solver with/without preconditioner
@@ -199,23 +206,38 @@ def main():
     # Starting guess
     u0 = np.random.normal(size=n)
 
-    # Exact Jacobian
-    u, niters, scores = newtons(F, exact_jacobian, u0, tol=1e-6)
-    print(">> Exact Jacobian")
-    print("Converged in {} iterations".format(niters))
-    # print("Previous scores={}".format(scores))
+    # Exact Jacobian direct solve
+    u, con_tracker_ex = newtons(F, exact_jacobian, u0, tol=1e-6)
+    print(">> Exact Jacobian: Direct solve")
+    print("Converged in {} iterations".format(con_tracker_ex.niters()))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
-    # Finite difference Jacobian
-    u, niters, scores = newtons(F, fd_jacobian, u0, tol=1e-6)
-    print("\n>> FD Jacobian")
-    print("Converged in {} iterations".format(niters))
+    # Exact Jacobian GMRES
+    u, con_tracker_ex = newtons(F,
+                                exact_jacobian,
+                                u0,
+                                tol=1e-6,
+                                solver='GMRES')
+    print(">> Exact Jacobian: GMRES")
+    print("Converged in {} iterations".format(con_tracker_ex.niters()))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
-    # Finite difference Jacobian
-    u, gmres_counter = newtons_derfree(F, u0, tol=1e-6)
+    # Finite difference Jacobian direct solve
+    u, con_tracker_fd = newtons(F, fd_jacobian, u0, tol=1e-6)
+    print("\n>> FD Jacobian: Direct solve")
+    print("Converged in {} iterations".format(con_tracker_fd.niters()))
+    print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
+
+    # Finite difference Jacobian GMRES
+    u, con_tracker_fd = newtons(F, fd_jacobian, u0, tol=1e-6, solver='GMRES')
+    print("\n>> FD Jacobian: GMRES")
+    print("Converged in {} iterations".format(con_tracker_fd.niters()))
+    print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
+
+    # Finite difference Jacobian derfree
+    u, con_tracker_df = newtons_derfree(F, u0, tol=1e-6)
     print("\n>> Derfree Jacobian")
-    print("Converged in {} iterations".format(gmres_counter._iter_count))
+    print("Converged in {} iterations".format(con_tracker_df.niters()))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
 
