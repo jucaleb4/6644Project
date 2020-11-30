@@ -27,7 +27,7 @@ def nonlinear_PDE(u):
     return r
 
 
-def newtons(F, J, x0, tol=1e-6):
+def newtons(F, J, x0, tol=1e-6, omega=None):
     """ Newton's Method with exact or FD Jacobian
 
     - F : Function eval. Returns 1d np.ndarray
@@ -40,6 +40,7 @@ def newtons(F, J, x0, tol=1e-6):
     - @score_hist, history of "F(x)". 1d np.ndarray
     """
     x = x0
+    n = len(x)
     niters = 0
     score_hist = np.array([la.norm(F(x))])
 
@@ -47,7 +48,13 @@ def newtons(F, J, x0, tol=1e-6):
         A = J(F, x)
         # use solver with/without preconditioner
         # TODO: When will this be singular?
-        s = spla.spsolve(A, -F(x))
+        if(omega != None):
+            M = lin_ssor_precon(A, omega, n)
+        else:
+            M = None
+
+        s, _ = spla.gmres(A,-F(x), M=M)
+
         x = x + s
         niters += 1
         score_hist = np.append(score_hist, la.norm(F(x)))
@@ -170,6 +177,28 @@ def ssor_precon(F, omega, n, x):
     return spla.LinearOperator((n, n), matvec=mv)
 
 
+def lin_ssor_precon(A, omega, n):
+    """ Construct an linear ssor preconditioner for the cases when we have a jacobian
+    matrix"""
+
+    #get the D, L and U parts of J
+    L = sp.tril(A, k=-1)
+    D = sp.diags(A.diagonal())
+    D_inv = sp.diags(1 / A.diagonal())
+    U = sp.triu(A, k=1)
+
+    M_1 = D_inv@(D - omega*U)
+    M_2 = omega*(2-omega)*(D - omega*L)
+
+    def mv(v):
+        #intermediate = spla.spsolve_triangular(M_2, v)
+        #w = spla.spsolve_triangular(M_1, intermediate, lower=False)
+        w = M_2 @ M_1 @ v
+        return w
+
+    return spla.LinearOperator((n, n), matvec=mv)
+
+
 def stabilise(a, small=1e-8):
     return a if abs(a) > small else small
 
@@ -192,6 +221,12 @@ def main():
     print(">> Exact Jacobian")
     print("Converged in {} iterations".format(niters))
     # print("Previous scores={}".format(scores))
+    print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
+
+    # Exact Jacobian with lin precon
+    u, niters, scores = newtons(F, exact_jacobian, u0, tol=1e-6, omega=0.5)
+    print(">> Exact Jacobian with linear SSOR")
+    print("Converged in {} iterations".format(niters))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
     # Finite difference Jacobian
