@@ -151,7 +151,7 @@ def exact_jacobian(x, u):
 
 
 def ssor_precon(F, omega, x):
-    """ Construct an ssor preconditioner for the cases when we have a jacobian
+    """ Construct an ssor preconditioner for the cases when we don't have a jacobian
     matrix"""
 
     tol = 1e-10
@@ -169,33 +169,37 @@ def ssor_precon(F, omega, x):
         w_old = np.zeros(n)
         w = np.zeros(n)
 
-        while(err > tol and n_out_iter < iter_out_limit):
+        while (err > tol and n_out_iter < iter_out_limit):
             w_old = np.copy(w)
 
-            for ii in range(2*n):
-                i = ii if ii < n else 2*n-ii-1
+            for ii in range(2 * n):
+                i = ii if ii < n else 2 * n - ii - 1
 
                 w_i_old = w[i]
                 inerr = 1.
                 n_in_iter = 0
 
-                Fwi = (F(x + eps*w)[i] - F(x)[i])/eps - v[i]
-                eps_e_i = np.append(np.zeros(i), np.append(eps, np.zeros(n-i-1)))
+                Fwi = (F(x + eps * w)[i] - F(x)[i]) / eps - v[i]
+                eps_e_i = np.append(np.zeros(i),
+                                    np.append(eps, np.zeros(n - i - 1)))
 
                 # Try Newton's method for root finding
-                while(n_in_iter == 0 or (abs(Fwi) > tol and n_in_iter < iter_in_limit)):
+
+                while (abs(Fwi) > tol and n_in_iter < iter_in_limit):
                     # Fwi = Fw(w)[i] - v[i]
 
                     # dfidwi = (Fw(w + pert)[i] - v[i] - Fwi) / eps
-                    Fwi_fwd = (F(x + eps*(w+eps_e_i))[i] - F(x)[i])/eps - v[i]
-                    Fwi_bwd = (F(x + eps*(w-eps_e_i))[i] - F(x)[i])/eps - v[i]
-                    dFwi = (Fwi_fwd-Fwi_bwd)/(2*eps)
+                    Fwi_fwd = (F(x + eps *
+                                 (w + eps_e_i))[i] - F(x)[i]) / eps - v[i]
+                    Fwi_bwd = (F(x + eps *
+                                 (w - eps_e_i))[i] - F(x)[i]) / eps - v[i]
+                    dFwi = (Fwi_fwd - Fwi_bwd) / (2 * eps)
 
                     # w[i] = w[i] - Fwi / stabilise(dfidwi)
-                    w[i] = w[i] - Fwi/dFwi
+                    w[i] = w[i] - Fwi / dFwi
 
                     # inerr = abs(Fwi / stabilise(dfidwi))
-                    Fwi = (F(x + eps*w)[i] - F(x)[i])/eps - v[i]
+                    Fwi = (F(x + eps * w)[i] - F(x)[i]) / eps - v[i]
                     n_in_iter += 1
 
                 # only update ith coordinate
@@ -238,7 +242,7 @@ def stabilise(a, small=1e-8):
 
 
 def main():
-    n = 10
+    n = 100
     # utrue = np.sin(np.arange(n))
     utrue = np.ones(n)
     R = nonlinear_PDE(utrue)
@@ -248,7 +252,7 @@ def main():
         return nonlinear_PDE(v) - R
 
     # Starting guess
-    seed_num = np.random.randint(0,1000)
+    seed_num = np.random.randint(0, 1000)
     print("== Seed {} ==\n".format(seed_num))
     np.random.seed(seed_num)
     u0 = np.random.normal(size=n)
@@ -306,6 +310,7 @@ def main():
     print("\n>> Derfree Jacobian")
     print("Converged in {} iterations".format(con_tracker_df.niters()))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
+
 
 if __name__ == '__main__':
     main()
