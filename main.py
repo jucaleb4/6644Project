@@ -61,6 +61,7 @@ def newtons(F, J, x0, tol=1e-6, omega=1., solver="Direct"):
     if solver == 'GMRES':
         while (la.norm(F(x)) > tol):
             M = lin_ssor_precon(A, omega)
+            # M = ssor_precon(F, omega, x)
             s, _ = spla.gmres(J(F, x), -F(x), M=M, callback=con_tracker)
             x = x + s
     else:
@@ -86,7 +87,7 @@ def newtons_derfree(F, x0, tol=1e-6):
     x = x0
     n = len(x)
     slen = 1e-4
-    omega = 1.
+    omega = 1.0
     gmres_counter = ConvergenceTracker(la.norm(F(x)))
 
     while (la.norm(F(x)) > tol):
@@ -153,9 +154,10 @@ def ssor_precon(F, omega, x):
     """ Construct an ssor preconditioner for the cases when we have a jacobian
     matrix"""
 
-    tol = 1e-2
+    tol = 1e-10
     eps = 1e-4
-    iter_limit = 1
+    iter_out_limit = 1
+    iter_in_limit = 1
     n = len(x)
 
     def Fw(w):
@@ -163,27 +165,44 @@ def ssor_precon(F, omega, x):
 
     def mv(v):
         err = 1.
-        n_iter = 0
+        n_out_iter = 0
         w_old = np.zeros(n)
         w = np.zeros(n)
 
-        while err > tol and n_iter < iter_limit:
+        while(err > tol and n_out_iter < iter_out_limit):
             w_old = np.copy(w)
 
-            for i in range(n):
+            for ii in range(2*n):
+                i = ii if ii < n else 2*n-ii-1
+
+                w_i_old = w[i]
                 inerr = 1.
+                n_in_iter = 0
 
-                while inerr > tol:
-                    pert = np.zeros(n)
-                    pert[i] = eps
-                    Fwi = Fw(w)[i] - v[i]
-                    dfidwi = (Fw(w + pert)[i] - v[i] - Fwi) / eps
-                    w[i] = w[i] - Fwi / stabilise(dfidwi)
-                    inerr = abs(Fwi / stabilise(dfidwi))
+                Fwi = (F(x + eps*w)[i] - F(x)[i])/eps - v[i]
+                eps_e_i = np.append(np.zeros(i), np.append(eps, np.zeros(n-i-1)))
 
-                w[i] = (1 - omega) * w_old[i] + omega * w[i]
+                # Try Newton's method for root finding
+                while(n_in_iter == 0 or (abs(Fwi) > tol and n_in_iter < iter_in_limit)):
+                    # Fwi = Fw(w)[i] - v[i]
+
+                    # dfidwi = (Fw(w + pert)[i] - v[i] - Fwi) / eps
+                    Fwi_fwd = (F(x + eps*(w+eps_e_i))[i] - F(x)[i])/eps - v[i]
+                    Fwi_bwd = (F(x + eps*(w-eps_e_i))[i] - F(x)[i])/eps - v[i]
+                    dFwi = (Fwi_fwd-Fwi_bwd)/(2*eps)
+
+                    # w[i] = w[i] - Fwi / stabilise(dfidwi)
+                    w[i] = w[i] - Fwi/dFwi
+
+                    # inerr = abs(Fwi / stabilise(dfidwi))
+                    Fwi = (F(x + eps*w)[i] - F(x)[i])/eps - v[i]
+                    n_in_iter += 1
+
+                # only update ith coordinate
+                w[i] = (1 - omega) * w_i_old + omega * w[i]
+
             err = la.norm(w - w_old) / stabilise(la.norm(w))
-            n_iter += 1
+            n_out_iter += 1
 
         return w
 
@@ -205,9 +224,9 @@ def lin_ssor_precon(A, omega):
     M_2 = omega * (2 - omega) * (D - omega * L)
 
     def mv(v):
-        #intermediate = spla.spsolve_triangular(M_2, v)
-        #w = spla.spsolve_triangular(M_1, intermediate, lower=False)
-        w = M_2 @ M_1 @ v
+        intermediate = spla.spsolve_triangular(M_2, v)
+        w = spla.spsolve_triangular(M_1, intermediate, lower=False)
+        # w = M_2 @ M_1 @ v
 
         return w
 
@@ -229,7 +248,24 @@ def main():
         return nonlinear_PDE(v) - R
 
     # Starting guess
+    seed_num = np.random.randint(0,1000)
+    print("== Seed {} ==\n".format(seed_num))
+    np.random.seed(seed_num)
     u0 = np.random.normal(size=n)
+
+    # test clustering
+    # omega = 1
+    # J = exact_jacobian(None, u0)
+    # L = sp.tril(J, k=-1)
+    # D = sp.diags(J.diagonal())
+    # D_inv = sp.diags(1/J.diagonal())
+    # U = sp.triu(J, k=1)
+    # M = omega * (2 - omega) * (D - omega * L) @ D_inv @ (D - omega * U)
+    # M = M.todense()
+    # M = la.inv(M)
+
+    # print("Eigenvalues w/o preconditioner =", la.eig(J.toarray())[0])
+    # print("Eigenvalues w/  preconditioner =", la.eig(M@J.toarray())[0])
 
     # Exact Jacobian direct solve
     u, con_tracker_ex = newtons(F, exact_jacobian, u0, tol=1e-6)
@@ -244,7 +280,7 @@ def main():
                                 tol=1e-6,
                                 omega=1,
                                 solver='GMRES')
-    print(">> Exact Jacobian: GMRES")
+    print("\n>> Exact Jacobian: GMRES")
     print("Converged in {} iterations".format(con_tracker_ex.niters()))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
@@ -270,7 +306,6 @@ def main():
     print("\n>> Derfree Jacobian")
     print("Converged in {} iterations".format(con_tracker_df.niters()))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
-
 
 if __name__ == '__main__':
     main()
