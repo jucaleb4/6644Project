@@ -41,6 +41,22 @@ def nonlinear_PDE(u):
 
     return r
 
+def nonlinear_PDE_KG(u):
+    """ Centered finite difference of nonlinear PDE Klein–Gordon equation
+            lap(u) - lambda^2*u^2 = 0
+    """
+    n = len(u)
+    h = 1 / (n + 1)
+    # TODO: allow @lam,@c to be parameters
+    lam = 1
+
+    lap = (1 / h**2) * (sp.diags([1, -2, 1], [-1, 0, 1], shape=(n, n)))
+
+    lap_u = lap.dot(u)
+
+    return lap_u - (lam**2)*u**2
+
+
 
 def newtons(F, J, x0, tol=1e-6, omega=1., solver="Direct"):
     """ Newton's Method with exact or FD Jacobian
@@ -149,6 +165,21 @@ def exact_jacobian(x, u):
 
     return J
 
+def exact_jacobian_KG(x, u):
+    """ Exact Jacobian of finite difference PDE from above """
+    n = len(u)
+    h = 1 / (n + 1)
+    lam = 1
+
+    subdiag = [(1 / h**2)] *np.ones(len(u)-1)
+    maindiag = -2 / (h**2) - 2*(lam**2)*u
+    supdiag = [(1 / h**2)] *np.ones(len(u)-1)
+
+    J = sp.diags(subdiag, -1) + sp.diags(maindiag, 0) + sp.diags(supdiag, 1)
+
+    return J
+
+
 
 def ssor_precon(F, omega, x):
     """ Construct an ssor preconditioner for the cases when we don't have a jacobian
@@ -245,11 +276,11 @@ def main():
     n = 100
     # utrue = np.sin(np.arange(n))
     utrue = np.ones(n)
-    R = nonlinear_PDE(utrue)
+    R = nonlinear_PDE_KG(utrue)
 
     # Objective function
     def F(v):
-        return nonlinear_PDE(v) - R
+        return nonlinear_PDE_KG(v) - R
 
     # Starting guess
     seed_num = np.random.randint(0, 1000)
@@ -272,14 +303,14 @@ def main():
     # print("Eigenvalues w/  preconditioner =", la.eig(M@J.toarray())[0])
 
     # Exact Jacobian direct solve
-    u, con_tracker_ex = newtons(F, exact_jacobian, u0, tol=1e-6)
+    u, con_tracker_ex = newtons(F, exact_jacobian_KG, u0, tol=1e-6)
     print(">> Exact Jacobian: Direct solve")
     print("Converged in {} iterations".format(con_tracker_ex.niters()))
     print("Error residual={:.2e}".format(la.norm(u - utrue) / la.norm(utrue)))
 
     # Exact Jacobian GMRES
     u, con_tracker_ex = newtons(F,
-                                exact_jacobian,
+                                exact_jacobian_KG,
                                 u0,
                                 tol=1e-6,
                                 omega=1,
